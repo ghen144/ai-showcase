@@ -12,6 +12,34 @@ const INITIAL = {
   marine_ships: {}
 }
 
+const MDP_INITIAL = {
+  map: [
+    ["S", "S", "I", "S"],
+    ["S", "I", "I", "S"],
+    ["B", "S", "S", "S"],
+    ["S", "S", "S", "S"]
+  ],
+  pirate_ships: {
+    pirate_ship_1: { location: [2, 0], capacity: 2 }
+  },
+  treasures: {
+    treasure_1: {
+      location: [0, 2],
+      possible_locations: [[0, 2]],
+      prob_change_location: 0
+    }
+  },
+  marine_ships: {},
+  "turns to go": 10,
+  optimal: true
+}
+
+const VALUE_COLORS = [
+  "#eff6ff", "#dbeafe", "#bfdbfe",
+  "#93c5fd", "#dcfce7", "#bbf7d0",
+  "#86efac", "#4ade80", "#16a34a"
+]
+
 const CELL_COLORS = {
   S: "#e0f2fe",
   I: "#d1fae5",
@@ -27,6 +55,9 @@ export default function App() {
   const [collecting, setCollecting] = useState(false)
   const [depositing, setDepositing] = useState(false)
   const [cargo, setCargo] = useState(0)
+  const [mdpData, setMdpData] = useState(null)
+  const [mdpRunning, setMdpRunning] = useState(false)
+  const [mdpIteration, setMdpIteration] = useState(0)
 
 
   const solve = async () => {
@@ -94,6 +125,56 @@ export default function App() {
     setDepositing(false)   
     setCargo(0)            
   }
+
+const solveMDP = async () => {
+  setMdpRunning(true)
+  setMdpIteration(0)
+  setMdpData(null)
+
+  const res = await fetch("http://127.0.0.1:8000/solve/mdp", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ initial: MDP_INITIAL })
+  })
+  const data = await res.json()
+  if (!data.success) {
+    alert("Error: " + data.error)
+    setMdpRunning(false)
+    return
+  }
+  setMdpData(data)
+
+  // animate through each iteration
+  let i = 0
+  const interval = setInterval(() => {
+    i++
+    setMdpIteration(i)
+    if (i >= data.iterations.length) {
+      clearInterval(interval)
+      setMdpRunning(false)
+    }
+  }, 400)
+}
+
+
+const getValueForCell = (r, c) => {
+  if (!mdpData || mdpIteration === 0) return null
+  const iterData = mdpData.iterations[mdpIteration - 1]
+  // get max value across capacities for this cell
+  let maxVal = null
+  for (let cap = 0; cap <= 2; cap++) {
+    const key = `${r},${c},${cap}`
+    if (iterData[key] !== undefined) {
+      if (maxVal === null || iterData[key] > maxVal) maxVal = iterData[key]
+    }
+  }
+  return maxVal
+}
+
+const getPolicyForCell = (r, c) => {
+  if (!mdpData || mdpIteration === 0) return null
+  return mdpData.policy_arrows[`${r},${c}`] || null
+}
 
   return (
     <div style={{ padding: "2rem", fontFamily: "sans-serif", maxWidth: 600 }}>
@@ -191,6 +272,75 @@ export default function App() {
           Reset
         </button>
       </div>
+      {/* ── MDP SECTION ── */}
+    <div style={{ marginTop: "3rem" }}>
+      <h2 style={{ marginBottom: "0.25rem" }}>Value Iteration</h2>
+      <p style={{ color: "#6b7280", marginBottom: "1.5rem", fontSize: "0.9rem" }}>
+        Color = state value. Arrows = optimal policy. Brighter green = higher expected reward.
+      </p>
+
+      <div style={{ display: "grid", gridTemplateColumns: `repeat(${MDP_INITIAL.map[0].length}, 64px)`, gap: 4, marginBottom: "1.5rem" }}>
+        {MDP_INITIAL.map.map((row, r) =>
+          row.map((cell, c) => {
+            const val = getValueForCell(r, c)
+            const arrow = getPolicyForCell(r, c)
+            const colorIdx = val !== null ? Math.min(Math.floor((val / 8) * 8), 8) : -1
+            const bg = cell === "I" ? "#d1fae5"
+              : cell === "B" ? "#fef3c7"
+              : colorIdx >= 0 && mdpIteration > 0 ? VALUE_COLORS[colorIdx]
+              : "#f1f5f9"
+
+            return (
+              <div key={`${r}-${c}`} style={{
+                width: 64, height: 64,
+                background: bg,
+                borderRadius: 8,
+                display: "flex", flexDirection: "column",
+                alignItems: "center", justifyContent: "center",
+                border: "1px solid rgba(0,0,0,0.08)",
+                transition: "background 0.5s ease",
+                fontSize: "0.6rem",
+                fontWeight: 600,
+                color: colorIdx >= 6 ? "white" : "#374151",
+              }}>
+                <div style={{ fontSize: "1rem" }}>
+                  {cell === "I" ? "🏝️" : cell === "B" ? "🏠" : arrow && mdpIteration > 0 ? arrow : ""}
+                </div>
+                {val !== null && mdpIteration > 0 && (
+                  <div style={{ fontSize: "0.55rem", opacity: 0.7 }}>{val}</div>
+                )}
+              </div>
+            )
+          })
+        )}
+      </div>
+
+      {/* stats */}
+      <div style={{ display: "flex", gap: "1rem", marginBottom: "1.5rem" }}>
+        <div style={{ background: "#fff1f2", border: "1px solid #fecdd3", borderRadius: 8, padding: "0.5rem 1rem" }}>
+          <div style={{ fontSize: "0.6rem", color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.1em" }}>States</div>
+          <div style={{ fontSize: "1.2rem", fontWeight: 700, color: "#be123c" }}>{mdpData ? mdpData.num_states : "—"}</div>
+        </div>
+        <div style={{ background: "#fefce8", border: "1px solid #fde68a", borderRadius: 8, padding: "0.5rem 1rem" }}>
+          <div style={{ fontSize: "0.6rem", color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.1em" }}>Runtime</div>
+          <div style={{ fontSize: "1.2rem", fontWeight: 700, color: "#92400e" }}>{mdpData ? mdpData.runtime + "s" : "—"}</div>
+        </div>
+        <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 8, padding: "0.5rem 1rem" }}>
+          <div style={{ fontSize: "0.6rem", color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.1em" }}>Iteration</div>
+          <div style={{ fontSize: "1.2rem", fontWeight: 700, color: "#15803d" }}>{mdpIteration > 0 ? mdpIteration + " / 10" : "—"}</div>
+        </div>
+      </div>
+
+      <button onClick={solveMDP} disabled={mdpRunning} style={{
+        background: "#be123c", color: "white", border: "none",
+        borderRadius: 8, padding: "0.7rem 1.5rem",
+        fontWeight: 600, fontSize: "0.85rem",
+        cursor: mdpRunning ? "not-allowed" : "pointer",
+        opacity: mdpRunning ? 0.6 : 1
+      }}>
+        {mdpRunning ? "Computing..." : "Run Value Iteration"}
+      </button>
+    </div>
     </div>
   )
 }
