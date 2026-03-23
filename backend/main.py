@@ -6,6 +6,7 @@ import search_322625120_212133219 as search
 import time
 import re
 import traceback
+from ex3_322625120 import Agent, UCTAgent
 
 
 app = FastAPI()
@@ -96,6 +97,24 @@ def solve_mdp(data: dict):
             "num_states": len(agent.all_states),
             "iterations": all_iterations,
             "policy_arrows": policy_arrows,
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e), "trace": traceback.format_exc()}
+    
+@app.post("/solve/uct")
+def solve_uct(data: dict):
+    initial = data["initial"]
+    player = data.get("player", 1)
+    start = time.time()
+    try:
+        agent = UCTAgent(initial, player)
+        state = data["state"]
+        action = agent.act(state)
+        elapsed = round(time.time() - start, 3)
+        return {
+            "success": True,
+            "action": str(action),
+            "runtime": elapsed,
         }
     except Exception as e:
         return {"success": False, "error": str(e), "trace": traceback.format_exc()}
